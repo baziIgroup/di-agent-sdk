@@ -492,3 +492,68 @@ def format_for_silent_agent_cards(results: List[Dict], query: str) -> str:
 
     return "\n\n".join(out)
 # ====== /ДОБАВЛЕНО ======
+# ================== КОНЕЦ ТВОЕГО КОДА БЕЗ ИЗМЕНЕНИЙ ==================
+
+
+# ================== ДОБАВЛЕНО НИЖЕ: КАРТОЧКИ В HTML ==================
+# (ничего выше не меняет; отдельный эндпоинт с HTML-вёрсткой карточек)
+from fastapi.responses import HTMLResponse as _HTMLResponse
+
+@app.get("/search_all_html", response_class=_HTMLResponse)
+def search_all_html(q: str = Query(..., description="Полный сбор по 70+ источникам (HTML карточки)")):
+    data = extended_collect(q)
+    if not data:
+        return f"""
+        <html><body style="font-family:Arial;max-width:900px;margin:40px auto;">
+            <h2>❌ Нет данных по запросу: <b>{q}</b></h2>
+        </body></html>
+        """
+
+    cards_html = []
+    for i, r in enumerate(data[:5], start=1):
+        name = r.get("Название", "Без названия")
+        link = r.get("Ссылка", "")
+        src  = r.get("Источник", "—")
+
+        # Доп. поля — если когда-то появятся в данных, будут показаны; иначе "—"
+        region = r.get("Регион", "—")
+        price  = r.get("Price", "—")
+        moq    = r.get("MOQ", "—")
+        certs  = r.get("Certificates", "—")
+        phone  = r.get("Phone", "—")
+        email  = r.get("Email", "—")
+        wa     = r.get("WhatsApp", "—")
+        tg     = r.get("Telegram", "—")
+
+        cards_html.append(f"""
+        <div style="border:1px solid #e5e7eb;border-radius:12px;padding:16px;margin:18px 0;
+                    box-shadow:0 2px 6px rgba(0,0,0,0.06);font-family:Arial,Helvetica,sans-serif;">
+            <div style="display:flex;align-items:center;gap:8px;">
+                <div style="font-size:20px;font-weight:700;">#{i}</div>
+                <div style="font-size:18px;font-weight:700;line-height:1.2;">{name}</div>
+            </div>
+            <div style="margin-top:8px;color:#374151;">
+                <div><b>Источник:</b> {src}</div>
+                <div><b>Ссылка:</b> <a href="{link}" target="_blank" rel="noopener noreferrer">{link}</a></div>
+                <div style="margin-top:6px;"><b>Регион:</b> {region} &nbsp;|&nbsp; <b>Цена:</b> {price} &nbsp;|&nbsp; <b>MOQ:</b> {moq}</div>
+                <div><b>Сертификаты:</b> {certs}</div>
+                <div style="margin-top:6px;"><b>Контакты:</b> Тел.: {phone} &nbsp;|&nbsp; Email: {email} &nbsp;|&nbsp; WhatsApp: {wa} &nbsp;|&nbsp; Telegram: {tg}</div>
+            </div>
+        </div>
+        """)
+
+    html = f"""
+    <html>
+      <head>
+        <meta charset="utf-8" />
+        <title>Результаты — {q}</title>
+      </head>
+      <body style="max-width:900px;margin:32px auto;padding:0 12px;font-family:Arial,Helvetica,sans-serif;color:#111827;">
+        <h2 style="margin-bottom:8px;">📡 Полный сбор по 70+ источникам — запрос: “{q}”</h2>
+        <div style="height:1px;background:#e5e7eb;margin:12px 0 20px;"></div>
+        {''.join(cards_html)}
+      </body>
+    </html>
+    """
+    return html
+# ================== /КАРТОЧКИ В HTML ==================
