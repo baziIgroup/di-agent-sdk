@@ -434,60 +434,11 @@ def extended_collect(query: str) -> List[Dict]:
         seen.add(link)
         uniq.append(item)
         if len(uniq) >= MAX_RESULTS:
-            break
-
-    return uniq
-
-
-# ===== конец функции extended_collect =====
-return uniq
+            break 
+        return uniq
 
 
-# 🔹 ОБНОВЛЁННЫЙ /search: сначала расширенный сбор (70+),
-#    если пусто — твой исходный блок (4 площадки)
-@app.get("/search")
-def search(q: str = Query(..., description="Введите поисковый запрос")):
-    print(f"🔍 Выполняю поиск по запросу: {q}")
 
-    big = extended_collect(q)
-    if big:
-        return {
-            "status": "ok",
-            "query": q,
-            "count": len(big),
-            "results": big[:MAX_RESULTS]
-        }
-
-    results = []
-    html = safe_request(f"https://www.alibaba.com/trade/search?fsb=y&IndexArea=product_en&searchText={quote(normalize_query(q))}")
-    results += parse_suppliers(html, [{"title": "h2.title, .organic-gallery-title", "link": "h2.title a, .organic-gallery-title a"}], "Alibaba")
-
-    html = safe_request(f"https://www.made-in-china.com/search?word={quote(normalize_query(q))}")
-    results += parse_suppliers(html, [{"title": ".company-name a", "link": ".company-name a"}], "Made-in-China")
-
-    html = safe_request(f"https://www.globalsources.com/searchList?query={quote(normalize_query(q))}")
-    results += parse_suppliers(html, [{"title": "a.gs-product-card__name", "link": "a.gs-product-card__name"}], "GlobalSources")
-
-    html = safe_request(f"https://www.baidu.com/s?wd={quote(normalize_query(q))}+site:1688.com")
-    results += parse_suppliers(html, [{"title": "h3.t a", "link": "h3.t a"}], "1688")
-
-    if not results:
-        return {"status": "error", "query": q, "results": []}
-
-    return {
-        "status": "ok",
-        "query": q,
-        "count": len(results),
-        "results": results[:50]
-    }
-
-
-# 🔹 ПРЯМОЙ эндпоинт расширенного сбора (для GPT)
-@app.get("/search_all")
-def search_all(q: str = Query(..., description="Полный сбор по 70+ источникам")):
-    data = extended_collect(q)
-    text_output = format_for_silent_agent_cards(data, q)
-    return text_output
 # ====== KEEP-ALIVE (чтобы Render не засыпал) ======
 import threading, time
 
