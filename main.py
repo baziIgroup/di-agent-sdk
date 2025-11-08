@@ -341,7 +341,6 @@ def social_collect(query: str) -> List[Dict]:
     results += apify_tiktok_search(q)
 
     # --- Через SerpAPI site: ---
-    # NEW ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓
     social_sites = {
         # 🔹 Западные соцсети
         "Telegram": "t.me",
@@ -374,7 +373,7 @@ def social_collect(query: str) -> List[Dict]:
 
         # 🔹 Российские и региональные
         "VK": "vk.com",
-        "Odnoklassники": "ok.ru",
+        "Odnokлассники": "ok.ru",
         "Rutube": "rutube.ru",
         "Yappy": "yappy.media",
         "Dzen": "dzen.ru",
@@ -382,7 +381,6 @@ def social_collect(query: str) -> List[Dict]:
 
     for name, site in social_sites.items():
         results += serpapi_site_search(q, site, name)
-    # NEW ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑
 
     return results
 # ====== /ДОБАВЛЕНО ======
@@ -435,19 +433,18 @@ def extended_collect(query: str) -> List[Dict]:
         uniq.append(item)
         if len(uniq) >= MAX_RESULTS:
             break
-    # <<< исправлено: возврат на уровне функции (не внутри цикла)
     return uniq
 
 
-# 🔹 ПРЯМОЙ эндпоинт расширенного сбора (для GPT)
-from fastapi.responses import PlainTextResponse
+# 🔹 ПРЯМОЙ эндпоинт расширенного сбора (HTML карточки)
+from fastapi.responses import HTMLResponse
 
-@app.get("/search_all", response_class=PlainTextResponse)
-def search_all(q: str = Query(..., description="Полный сбор по 70+ источникам")):
-    """Основной эндпоинт — принимает запрос q (например, LGSF)"""
+@app.get("/search_all", response_class=HTMLResponse)
+def search_all(q: str = Query(..., description="Полный сбор по 70+ источникам (HTML карточки)")):
+    """Основной эндпоинт — принимает запрос q (например, LGSF) и возвращает HTML карточки с контактами."""
     data = extended_collect(q)
-    text_output = format_for_silent_agent_cards(data, q)
-    return text_output
+    html_output = format_for_silent_agent_cards(data, q)
+    return html_output
 
 
 # ====== KEEP-ALIVE (чтобы Render не засыпал) ======
@@ -465,95 +462,177 @@ def keep_alive():
 
 # Запускаем отдельный поток после старта FastAPI
 threading.Thread(target=keep_alive, daemon=True).start()
-# ====== /KEEP-ALIVE ======# ====== ДОБАВЛЕНО: формат вывода карточек SILENT SUPPLIER AGENT ======
-import random
-from datetime import datetime
+# ====== /KEEP-ALIVE ======
+
+
+# ====== ДОБАВЛЕНО: извлечение контактов и HTML-карточки для вывода ======
+def extract_contacts(html: str, url: str = "") -> Dict[str, str]:
+    """
+    Пытается вытащить из HTML: телефоны, email, соцссылки (WhatsApp/Telegram/WeChat),
+    сертификаты/ICP/регион/MOQ/Price и т.п.
+    Возвращает словарь с полями (строки или пустые строки).
+    """
+    out = {
+        "Phone": "",
+        "Email": "",
+        "WhatsApp": "",
+        "Telegram": "",
+        "WeChat": "",
+        "Region": "",
+        "Price": "",
+        "MOQ": "",
+        "Certificates": "",
+        "CNAME": "",
+        "RawURL": url
+    }
+    if not html:
+        return out
+
+    phone_re = re.compile(r"(\+?\d[\d\-\s\(\)]{6,}\d)")
+    email_re = re.compile(r"([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})")
+    whatsapp_re = re.compile(r"(?:wa\.me/|whatsapp(?:\.com)?/send\?phone=)(\+?\d[\d\-]{5,})", re.I)
+    telegram_re = re.compile(r"(?:t\.me/|telegram\.me/)([A-Za-z0-9_]{3,})", re.I)
+    wechat_re = re.compile(r"(?:weixin\.qq\.com|wxid|wechat|微信|WeChat)[^\s'\"<>]{0,40}", re.I)
+
+    cert_re = re.compile(r"(ICP[^\s,;:<\)]{1,30}|备案|certificate|Сертификат[^\n\r]{0,80})", re.I)
+    region_re = re.compile(r"(Region|Регион|City|Province|所在地|所在省|город|город:)[\s:-–]*([A-Za-zА-Яа-я0-9\-\s,]+)", re.I)
+    moq_re = re.compile(r"(MOQ|Минимальный заказ|мин\. заказ|минимальный объем)[^\d]{0,10}([0-9,.\s]+)", re.I)
+    price_re = re.compile(r"(?:price|цена|Цена)[^\d]{0,10}([\d\$\€\£\.,\s/]+)", re.I)
+    cname_re = re.compile(r"(CNAME|cname)[^\w]{0,3}([A-Za-z0-9\.\-]+)", re.I)
+
+    m_email = email_re.search(html)
+    if m_email:
+        out["Email"] = m_email.group(1).strip()
+
+    phones = phone_re.findall(html)
+    phones = [p.strip() for p in phones if len(re.sub(r"\D", "", p)) >= 6]
+    if phones:
+        out["Phone"] = phones[0]
+
+    m_wa = whatsapp_re.search(html)
+    if m_wa:
+        out["WhatsApp"] = m_wa.group(1).strip()
+    m_tg = telegram_re.search(html)
+    if m_tg:
+        out["Telegram"] = m_tg.group(1).strip()
+    m_wx = wechat_re.search(html)
+    if m_wx:
+        out["WeChat"] = m_wx.group(0).strip()
+
+    m_cert = cert_re.search(html)
+    if m_cert:
+        out["Certificates"] = m_cert.group(0).strip()
+    m_region = region_re.search(html)
+    if m_region:
+        out["Region"] = m_region.group(2).strip()
+    m_moq = moq_re.search(html)
+    if m_moq:
+        out["MOQ"] = m_moq.group(2).strip()
+    m_price = price_re.search(html)
+    if m_price:
+        out["Price"] = m_price.group(1).strip()
+    m_cname = cname_re.search(html)
+    if m_cname:
+        out["CNAME"] = m_cname.group(2).strip()
+
+    soup = BeautifulSoup(html, "lxml")
+    for a in soup.select("a[href]"):
+        href = a.get("href", "")
+        if "wa.me" in href or "whatsapp" in href:
+            if not out["WhatsApp"]:
+                out["WhatsApp"] = href
+        if "t.me" in href or "telegram" in href:
+            if not out["Telegram"]:
+                out["Telegram"] = href
+        if "weixin" in href or "wechat" in href:
+            if not out["WeChat"]:
+                out["WeChat"] = href
+        if "mailto:" in href:
+            em = href.split("mailto:")[1].split("?")[0]
+            if not out["Email"]:
+                out["Email"] = em
+
+    return out
+
 
 def format_for_silent_agent_cards(results: List[Dict], query: str) -> str:
-    """Создаёт текст с эмодзи и заголовком 'Полный сбор по 70+ источникам' без изменения существующего кода"""
+    """
+    Возвращает HTML (string) — набор карточек. Для каждого результата:
+    - безопасно грузит страницу и извлекает контакты
+    - выводит аккуратные кликабельные карточки
+    """
     if not results:
-        return f"❌ Нет данных. 📡 Полный сбор по 70+ источникам — запрос: \"{query}\""
-
-    medals = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣"]
-    out = [f"📡 Полный сбор по 70+ источникам — запрос: \"{query}\"\n────────────────────────────"]
-
-    for i, r in enumerate(results[:5]):
-        out.append(f"""{medals[i]} **TOP {i+1} — {r.get('Название', 'Unknown')}**
-🌍 **Регион:** {r.get('Регион', '—')}
-🏷️ **Продукт:** {r.get('Product', query)}
-💰 **Цена:** {r.get('Price', '—')}
-📦 **MOQ:** {r.get('MOQ', '—')}
-🧾 **Сертификаты:** {r.get('Certificates', '—')}
-📞 **Контакты:** WeChat: {r.get('WeChat', '')} | WhatsApp: {r.get('WhatsApp', '')} | Telegram: {r.get('Telegram', '')} | Email: {r.get('Email', '')} | Phone: {r.get('Phone', '')} | Website: {r.get('Ссылка', '')}
-🧠 **Рейтинг:** {r.get('Rating', '—')} / 100
-🔗 **Источник:** {r.get('Источник', '—')}
-🖼️ [Image]({r.get('Image', 'https://via.placeholder.com/400x300?text=Supplier')})
-────────────────────────────""")
-
-    return "\n\n".join(out)
-# ====== /ДОБАВЛЕНО ======
-# ================== КОНЕЦ ТВОЕГО КОДА БЕЗ ИЗМЕНЕНИЙ ==================
-
-
-# ================== ДОБАВЛЕНО НИЖЕ: КАРТОЧКИ В HTML ==================
-# (ничего выше не меняет; отдельный эндпоинт с HTML-вёрсткой карточек)
-from fastapi.responses import HTMLResponse as _HTMLResponse
-
-@app.get("/search_all_html", response_class=_HTMLResponse)
-def search_all_html(q: str = Query(..., description="Полный сбор по 70+ источникам (HTML карточки)")):
-    data = extended_collect(q)
-    if not data:
         return f"""
-        <html><body style="font-family:Arial;max-width:900px;margin:40px auto;">
-            <h2>❌ Нет данных по запросу: <b>{q}</b></h2>
-        </body></html>
-        """
+        <html><body style="font-family:-apple-system,Roboto,Arial;background:#f6f7fb;padding:18px">
+        <div class="wrap" style="max-width:980px;margin:0 auto">
+        <h1>❌ Нет данных. Полный сбор по 70+ источникам — запрос: “{query}”</h1>
+        </div></body></html>"""
 
-    cards_html = []
-    for i, r in enumerate(data[:5], start=1):
-        name = r.get("Название", "Без названия")
-        link = r.get("Ссылка", "")
-        src  = r.get("Источник", "—")
+    header = f"""
+    <html><head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      <style>
+        body{{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial;background:#f6f7fb;color:#111;padding:18px}}
+        .wrap{{max-width:980px;margin:0 auto}}
+        .card{{background:#fff;border:1px solid #e0e4e8;border-radius:10px;padding:14px;margin-bottom:14px;box-shadow:0 1px 2px rgba(0,0,0,0.06)}}
+        .meta{{color:#555;font-size:13px;margin-top:6px}}
+        .link{{display:block;margin-top:8px}}
+        .row{{margin-top:6px}}
+        .label{{font-weight:600}}
+      </style>
+    </head><body><div class="wrap">
+      <h1>📡 Полный сбор по 70+ источникам — запрос: “{query}”</h1>
+      <div style="height:1px;background:#e5e7eb;margin:10px 0 14px;"></div>
+    """
 
-        # Доп. поля — если когда-то появятся в данных, будут показаны; иначе "—"
-        region = r.get("Регион", "—")
-        price  = r.get("Price", "—")
-        moq    = r.get("MOQ", "—")
-        certs  = r.get("Certificates", "—")
-        phone  = r.get("Phone", "—")
-        email  = r.get("Email", "—")
-        wa     = r.get("WhatsApp", "—")
-        tg     = r.get("Telegram", "—")
+    cards = [header]
 
-        cards_html.append(f"""
-        <div style="border:1px solid #e5e7eb;border-radius:12px;padding:16px;margin:18px 0;
-                    box-shadow:0 2px 6px rgba(0,0,0,0.06);font-family:Arial,Helvetica,sans-serif;">
-            <div style="display:flex;align-items:center;gap:8px;">
-                <div style="font-size:20px;font-weight:700;">#{i}</div>
-                <div style="font-size:18px;font-weight:700;line-height:1.2;">{name}</div>
-            </div>
-            <div style="margin-top:8px;color:#374151;">
-                <div><b>Источник:</b> {src}</div>
-                <div><b>Ссылка:</b> <a href="{link}" target="_blank" rel="noopener noreferrer">{link}</a></div>
-                <div style="margin-top:6px;"><b>Регион:</b> {region} &nbsp;|&nbsp; <b>Цена:</b> {price} &nbsp;|&nbsp; <b>MOQ:</b> {moq}</div>
-                <div><b>Сертификаты:</b> {certs}</div>
-                <div style="margin-top:6px;"><b>Контакты:</b> Тел.: {phone} &nbsp;|&nbsp; Email: {email} &nbsp;|&nbsp; WhatsApp: {wa} &nbsp;|&nbsp; Telegram: {tg}</div>
-            </div>
+    for i, r in enumerate(results[:5], start=1):
+        url = r.get("Ссылка") or ""
+        page_html = safe_request(url) if url and url != "N/A" else ""
+        c = extract_contacts(page_html, url)
+
+        title = r.get("Название") or f"Result {i}"
+        source = r.get("Источник") or "—"
+        region = c.get("Region") or r.get("Регион") or "—"
+        price  = c.get("Price")  or r.get("Price")  or "—"
+        moq    = c.get("MOQ")    or r.get("MOQ")    or "—"
+        certs  = c.get("Certificates") or r.get("Certificates") or "—"
+        phone  = c.get("Phone") or r.get("Phone") or ""
+        email  = c.get("Email") or r.get("Email") or ""
+        wa     = c.get("WhatsApp") or r.get("WhatsApp") or ""
+        tg     = c.get("Telegram") or r.get("Telegram") or ""
+        wx     = c.get("WeChat") or r.get("WeChat") or ""
+
+        contacts_parts = []
+        if phone:   contacts_parts.append(f"Тел.: <a href='tel:{re.sub(r'\\D','',phone)}'>{phone}</a>")
+        if email:   contacts_parts.append(f"Email: <a href='mailto:{email}'>{email}</a>")
+        if wa:
+            if wa.startswith("http"):
+                contacts_parts.append(f"WhatsApp: <a href='{wa}' target='_blank'>{wa}</a>")
+            else:
+                contacts_parts.append(f"WhatsApp: <a href='https://wa.me/{re.sub(r'\\D','',wa)}' target='_blank'>{wa}</a>")
+        if tg:
+            if tg.startswith("http"):
+                contacts_parts.append(f"Telegram: <a href='{tg}' target='_blank'>{tg}</a>")
+            else:
+                contacts_parts.append(f"Telegram: <a href='https://t.me/{tg}' target='_blank'>{tg}</a>")
+        if wx:      contacts_parts.append(f"WeChat: {wx}")
+
+        contacts_html = " | ".join(contacts_parts) if contacts_parts else "—"
+
+        cards.append(f"""
+        <div class="card">
+          <div><span class="label">#{i}</span> <strong>{title}</strong></div>
+          <div class="meta">Источник: {source}</div>
+          <div class="row">Регион: {region} &nbsp;|&nbsp; Цена: {price} &nbsp;|&nbsp; MOQ: {moq}</div>
+          <div class="row">Сертификаты: {certs}</div>
+          <div class="row"><a class="link" href="{url}" target="_blank" rel="noopener noreferrer">🔗 Ссылка — {url}</a></div>
+          <div class="row"><b>Контакты:</b> {contacts_html}</div>
         </div>
         """)
 
-    html = f"""
-    <html>
-      <head>
-        <meta charset="utf-8" />
-        <title>Результаты — {q}</title>
-      </head>
-      <body style="max-width:900px;margin:32px auto;padding:0 12px;font-family:Arial,Helvetica,sans-serif;color:#111827;">
-        <h2 style="margin-bottom:8px;">📡 Полный сбор по 70+ источникам — запрос: “{q}”</h2>
-        <div style="height:1px;background:#e5e7eb;margin:12px 0 20px;"></div>
-        {''.join(cards_html)}
-      </body>
-    </html>
-    """
-    return html
-# ================== /КАРТОЧКИ В HTML ==================
+    cards.append("</div></body></html>")
+    return "\n".join(cards)
+# ====== /ДОБАВЛЕНО ======
