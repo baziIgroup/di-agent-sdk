@@ -374,7 +374,7 @@ def social_collect(query: str) -> List[Dict]:
 
         # 🔹 Российские и региональные
         "VK": "vk.com",
-        "Odnoklassniki": "ok.ru",
+        "Odnoklassники": "ok.ru",
         "Rutube": "rutube.ru",
         "Yappy": "yappy.media",
         "Dzen": "dzen.ru",
@@ -434,17 +434,17 @@ def extended_collect(query: str) -> List[Dict]:
         seen.add(link)
         uniq.append(item)
         if len(uniq) >= MAX_RESULTS:
-            break 
-        return uniq
-    
-    
-    # 🔹 ПРЯМОЙ эндпоинт расширенного сбора (для GPT)
+            break
+    # <<< исправлено: возврат на уровне функции (не внутри цикла)
+    return uniq
+
+
+# 🔹 ПРЯМОЙ эндпоинт расширенного сбора (для GPT)
 @app.get("/search_all")
 def search_all(q: str = Query(..., description="Полный сбор по 70+ источникам")):
     data = extended_collect(q)
     text_output = format_for_silent_agent_cards(data, q)
     return text_output
-
 
 
 # ====== KEEP-ALIVE (чтобы Render не засыпал) ======
