@@ -440,8 +440,11 @@ def extended_collect(query: str) -> List[Dict]:
 
 
 # 🔹 ПРЯМОЙ эндпоинт расширенного сбора (для GPT)
-@app.get("/search_all")
+from fastapi.responses import PlainTextResponse
+
+@app.get("/search_all", response_class=PlainTextResponse)
 def search_all(q: str = Query(..., description="Полный сбор по 70+ источникам")):
+    """Основной эндпоинт — принимает запрос q (например, LGSF)"""
     data = extended_collect(q)
     text_output = format_for_silent_agent_cards(data, q)
     return text_output
