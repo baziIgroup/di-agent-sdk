@@ -6,7 +6,7 @@ from bs4 import BeautifulSoup
 # ====== ДОБАВЛЕНО ======
 import concurrent.futures
 from urllib.parse import quote
-import re
+import re, os
 from typing import List, Dict
 
 # Общие заголовки, чтобы меньше блокировали
@@ -25,13 +25,17 @@ SESSION.headers.update(DEFAULT_HEADERS)
 TIMEOUT = 12
 MAX_WORKERS = 16
 MAX_RESULTS = 500
+
+# КЛЮЧИ (ставь на Render → Environment)
+APIFY_TOKEN = os.getenv("APIFY_TOKEN", "").strip()
+SERPAPI_KEY = os.getenv("SERPAPI_KEY", "").strip()
 # ====== /ДОБАВЛЕНО ======
 
 
 app = FastAPI(
     title="DI-Agent SDK",
     description="Интеллектуальный агент для анализа поставщиков Китая",
-    version="1.0.2"
+    version="2.0.0"
 )
 
 # 🔹 Модель данных для запроса
@@ -97,7 +101,6 @@ def parse_flexible(html: str, source: str) -> List[Dict]:
     results: List[Dict] = []
     seen = set()
 
-    # Пробуем набор актуальных селекторов
     for sel in GENERIC_SELECTORS:
         for a in soup.select(sel["link"]):
             href = a.get("href", "").strip()
@@ -134,8 +137,7 @@ def root():
     }
 
 
-# ====== ДОБАВЛЕНО: список 70+ источников ======
-# Каждому сайту — URL-шаблон с {q}. Если сайт не принимает кириллицу, мы переведём.
+# ====== ДОБАВЛЕНО: список 70+ источников (B2B/каталоги/поиски) ======
 SOURCES: Dict[str, str] = {
     # Крупные B2B
     "Alibaba": "https://www.alibaba.com/trade/search?fsb=y&IndexArea=product_en&searchText={q}",
@@ -174,7 +176,7 @@ SOURCES: Dict[str, str] = {
     "Bing China": "https://cn.bing.com/search?q={q}",
     "Google (backup)": "https://www.google.com/search?q={q}",
 
-    # Ещё B2B/агрегаторы (добавлено, чтобы было 70+)
+    # Ещё B2B/агрегаторы
     "E-WorldTrade": "https://www.eworldtrade.com/search/{q}/",
     "China.cn": "https://www.china.cn/search.html?searchKey={q}",
     "B2BManufactures": "https://www.manufacturers.com.tw/search.php?words={q}",
@@ -207,13 +209,6 @@ SOURCES: Dict[str, str] = {
     "PharmaSources": "https://www.pharmasources.com/searchResult?keyword={q}",
     "MedicaTradeFair": "https://www.medica-tradefair.com/vis/v1/en/search?term={q}",
     "HKTDC Products": "https://sourcing.hktdc.com/Search-Product?keyword={q}&productonly=1",
-    "Xiaohongshu": "https://www.xiaohongshu.com/search_result?keyword={q}",
-    "Weixin": "https://weixin.sogou.com/weixin?type=2&query={q}",
-    "Bilibili": "https://search.bilibili.com/all?keyword={q}",
-    "Weibo": "https://s.weibo.com/weibo?q={q}",
-    "LinkedIn": "https://www.linkedin.com/search/results/companies/?keywords={q}",
-    "Pinterest": "https://www.pinterest.com/search/pins/?q={q}",
-    "YouTube": "https://www.youtube.com/results?search_query={q}"
 }
 
 # Точечные селекторы для нескольких ключевых площадок (остальные — гибкий парсер)
@@ -249,12 +244,153 @@ def normalize_query(q: str) -> str:
                 return v
     return q
 
+# ====== ДОБАВЛЕНО: Соц-источники через официальные/разрешённые API ======
+def serpapi_site_search(query: str, site: str, source_name: str) -> List[Dict]:
+    """Site: search через SerpAPI (реальные ссылки + сниппеты + иногда картинки)."""
+    if not SERPAPI_KEY:
+        return []
+    try:
+        params = {
+            "engine": "google",
+            "q": f"site:{site} {query}",
+            "num": 10,
+            "api_key": SERPAPI_KEY
+        }
+        r = requests.get("https://serpapi.com/search.json", params=params, timeout=12)
+        js = r.json()
+        out = []
+        for item in js.get("organic_results", []):
+            title = item.get("title")
+            link = item.get("link")
+            if not title or not link:
+                continue
+            out.append({
+                "Название": title,
+                "Ссылка": link,
+                "Источник": source_name
+            })
+        return out
+    except Exception as e:
+        print(f"❌ SerpAPI {source_name}: {e}")
+        return []
+
+def apify_instagram_search(query: str) -> List[Dict]:
+    """Public Instagram via Apify actor (официальный способ получения публичных профилей/постов)."""
+    if not APIFY_TOKEN:
+        return []
+    try:
+        url = f"https://api.apify.com/v2/acts/apify~instagram-scraper/run-sync-get-dataset-items?token={APIFY_TOKEN}"
+        payload = {
+            "search": query,
+            "resultsType": "posts",
+            "profilesType": "hashtag",
+            "resultsLimit": 10
+        }
+        r = requests.post(url, json=payload, timeout=30)
+        items = r.json() if r.status_code == 200 else []
+        out = []
+        for it in items:
+            title = it.get("caption") or it.get("ownerUsername") or "Instagram result"
+            link = it.get("url") or it.get("shortCodeUrl")
+            if not link:
+                continue
+            out.append({
+                "Название": title[:200],
+                "Ссылка": link,
+                "Источник": "Instagram (Apify)"
+            })
+        return out
+    except Exception as e:
+        print(f"❌ Apify Instagram: {e}")
+        return []
+
+def apify_tiktok_search(query: str) -> List[Dict]:
+    if not APIFY_TOKEN:
+        return []
+    try:
+        url = f"https://api.apify.com/v2/acts/apify~tiktok-scraper/run-sync-get-dataset-items?token={APIFY_TOKEN}"
+        payload = {
+            "search": query,
+            "resultsType": "videos",
+            "resultsLimit": 10
+        }
+        r = requests.post(url, json=payload, timeout=30)
+        items = r.json() if r.status_code == 200 else []
+        out = []
+        for it in items:
+            title = it.get("desc") or it.get("authorName") or "TikTok result"
+            link = it.get("webVideoUrl") or it.get("shareUrl")
+            if not link:
+                continue
+            out.append({
+                "Название": title[:200],
+                "Ссылка": link,
+                "Источник": "TikTok (Apify)"
+            })
+        return out
+    except Exception as e:
+        print(f"❌ Apify TikTok: {e}")
+        return []
+
+def social_collect(query: str) -> List[Dict]:
+    q = normalize_query(query)
+    results = []
+
+    # Instagram/TikTok (через Apify)
+    results += apify_instagram_search(q)
+    results += apify_tiktok_search(q)
+
+    # --- Через SerpAPI site: ---
+    # NEW ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓
+    social_sites = {
+        # 🔹 Западные соцсети
+        "Telegram": "t.me",
+        "WhatsApp": "wa.me",
+        "YouTube": "youtube.com",
+        "Facebook": "facebook.com",
+        "Twitter (X)": "x.com",
+        "Pinterest": "pinterest.com",
+        "Reddit": "reddit.com",
+        "LinkedIn": "linkedin.com/company",
+        "Threads (Meta)": "threads.net",
+        "Instagram (backup)": "instagram.com",
+        "Snapchat": "snapchat.com",
+        "Twitch": "twitch.tv",
+        "Discord": "discord.com",
+        "Tumblr": "tumblr.com",
+        "Medium": "medium.com",
+
+        # 🔹 Восточные и китайские
+        "WeChat": "weixin.qq.com",
+        "QQ": "qq.com",
+        "Weibo": "weibo.com",
+        "Douyin (CN TikTok)": "douyin.com",
+        "Bilibili": "bilibili.com",
+        "Zhihu": "zhihu.com",
+        "Youku": "youku.com",
+        "Xiaohongshu (RED)": "xiaohongshu.com",
+        "Taobao Live": "live.taobao.com",
+        "Kuaishou": "kuaishou.com",
+
+        # 🔹 Российские и региональные
+        "VK": "vk.com",
+        "Odnoklassniki": "ok.ru",
+        "Rutube": "rutube.ru",
+        "Yappy": "yappy.media",
+        "Dzen": "dzen.ru",
+    }
+
+    for name, site in social_sites.items():
+        results += serpapi_site_search(q, site, name)
+    # NEW ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑
+
+    return results
+# ====== /ДОБАВЛЕНО ======
+
 def _fetch_one(name: str, url: str) -> List[Dict]:
     html = safe_request(url)
-    # Если есть спец-селекторы для сайта — применяем твой исходный парсер
     if name in SITE_SELECTORS:
         return parse_suppliers(html, SITE_SELECTORS[name], name)
-    # Иначе — гибкий парсер
     return parse_flexible(html, name)
 
 def extended_collect(query: str) -> List[Dict]:
@@ -264,6 +400,16 @@ def extended_collect(query: str) -> List[Dict]:
     tasks = {}
     results: List[Dict] = []
 
+    # 1) Социальные источники (API) — реальные ссылки
+    try:
+        social = social_collect(q_norm)
+        if social:
+            print(f"✅ SOCIAL: {len(social)}")
+            results.extend(social)
+    except Exception as e:
+        print(f"❌ SOCIAL error: {e}")
+
+    # 2) B2B/каталоги/поисковые страницы
     with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
         for name, tmpl in SOURCES.items():
             url = tmpl.format(q=q_enc)
@@ -291,7 +437,6 @@ def extended_collect(query: str) -> List[Dict]:
             break
 
     return uniq
-# ====== /ДОБАВЛЕНО ======
 
 
 # 🔹 ОБНОВЛЁННЫЙ /search: сначала расширенный сбор (70+),
@@ -300,7 +445,6 @@ def extended_collect(query: str) -> List[Dict]:
 def search(q: str = Query(..., description="Введите поисковый запрос")):
     print(f"🔍 Выполняю поиск по запросу: {q}")
 
-    # 1) Пытаемся собрать максимум
     big = extended_collect(q)
     if big:
         return {
@@ -310,9 +454,7 @@ def search(q: str = Query(..., description="Введите поисковый з
             "results": big[:MAX_RESULTS]
         }
 
-    # 2) Фолбэк — твоя исходная логика (НЕ УДАЛЯЛ)
     results = []
-
     html = safe_request(f"https://www.alibaba.com/trade/search?fsb=y&IndexArea=product_en&searchText={quote(normalize_query(q))}")
     results += parse_suppliers(html, [{"title": "h2.title, .organic-gallery-title", "link": "h2.title a, .organic-gallery-title a"}], "Alibaba")
 
@@ -335,7 +477,7 @@ def search(q: str = Query(..., description="Введите поисковый з
         "results": results[:50]
     }
 
-# 🔹 ДОБАВЛЕНО: прямой эндпоинт расширенного сбора (удобно для GPT)
+# 🔹 ПРЯМОЙ эндпоинт расширенного сбора (для GPT)
 @app.get("/search_all")
 def search_all(q: str = Query(..., description="Полный сбор по 70+ источникам")):
     data = extended_collect(q)
