@@ -487,3 +487,19 @@ def search_all(q: str = Query(..., description="Полный сбор по 70+ �
         "count": len(data),
         "results": data[:MAX_RESULTS]
     }
+# ====== KEEP-ALIVE (чтобы Render не засыпал) ======
+import threading, time
+
+def keep_alive():
+    """Периодически пингует сам сервер, чтобы Render не засыпал."""
+    while True:
+        try:
+            requests.get("https://di-agent-sdk.onrender.com/", timeout=5)
+            print("🔄 Keep-alive ping OK")
+        except Exception as e:
+            print(f"⚠️ Keep-alive error: {e}")
+        time.sleep(300)  # каждые 5 минут
+
+# Запускаем отдельный поток после старта FastAPI
+threading.Thread(target=keep_alive, daemon=True).start()
+# ====== /KEEP-ALIVE ======
