@@ -439,13 +439,23 @@ def extended_collect(query: str) -> List[Dict]:
     return uniq
 
 
+# ===== конец функции extended_collect =====
+return uniq
+
+
 # 🔹 ОБНОВЛЁННЫЙ /search: сначала расширенный сбор (70+),
 #    если пусто — твой исходный блок (4 площадки)
-@app.get("/search_all")
-def search_all(q: str = Query(..., description="Полный сбор по 70+ источникам")):
-    data = extended_collect(q)
-    text_output = format_for_silent_agent_cards(data, q)
-    return text_output
+@app.get("/search")
+def search(q: str = Query(..., description="Введите поисковый запрос")):
+    print(f"🔍 Выполняю поиск по запросу: {q}")
+
+    big = extended_collect(q)
+    if big:
+        return {
+            "status": "ok",
+            "query": q,
+            "count": len(big),
+            "results": big[:MAX_RESULTS]
         }
 
     results = []
@@ -471,16 +481,13 @@ def search_all(q: str = Query(..., description="Полный сбор по 70+ �
         "results": results[:50]
     }
 
+
 # 🔹 ПРЯМОЙ эндпоинт расширенного сбора (для GPT)
 @app.get("/search_all")
 def search_all(q: str = Query(..., description="Полный сбор по 70+ источникам")):
     data = extended_collect(q)
-    return {
-        "status": "ok" if data else "error",
-        "query": q,
-        "count": len(data),
-        "results": data[:MAX_RESULTS]
-    }
+    text_output = format_for_silent_agent_cards(data, q)
+    return text_output
 # ====== KEEP-ALIVE (чтобы Render не засыпал) ======
 import threading, time
 
