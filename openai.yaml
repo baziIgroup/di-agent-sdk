@@ -1,0 +1,34 @@
+openapi: 3.1.0
+info:
+  title: China Supplier Sourcing SDK
+  version: "1.0.0"
+  description: |
+    70+ China/B2B sources → parses, enriches, ranks, returns EXACTLY 5 HTML supplier cards.
+    Endpoint returns text/html ready to render in GPT.
+servers:
+  - url: https://YOUR-RENDER-APP.onrender.com
+paths:
+  /search:
+    get:
+      operationId: getTop5Suppliers
+      summary: Returns 5 supplier cards (HTML) for the given query
+      parameters:
+        - in: query
+          name: q
+          required: true
+          schema:
+            type: string
+          description: Product/industry keywords (any language; RU auto-normalizes)
+      responses:
+        "200":
+          description: OK (HTML cards)
+          content:
+            text/html:
+              schema:
+                type: string
+        "204":
+          description: No suppliers found
+        "400":
+          description: Missing q
+        "500":
+          description: Internal error
