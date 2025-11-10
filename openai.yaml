@@ -3,32 +3,242 @@ info:
   title: China Supplier Sourcing SDK
   version: "1.0.0"
   description: |
-    70+ China/B2B sources → parses, enriches, ranks, returns EXACTLY 5 HTML supplier cards.
-    Endpoint returns text/html ready to render in GPT.
+    🌏 **China Supplier Sourcing SDK — Bazil Group**
+    ---
+    Интеллектуальный API для поиска и анализа поставщиков в Китае.
+
+    ⚙️ **Функционал:**
+    - 70+ крупнейших источников B2B и промышленных каталогов Китая:  
+      Alibaba, Made-in-China, GlobalSources, 1688, HKTDC, ECER, HC360, DHGate, YiwuGo и др.
+    - Извлекает контактные данные (телефоны, почты, WhatsApp, Telegram, WeChat)
+    - Анализирует наличие сертификатов, региона, минимального объёма заказа (MOQ), цен, ICP-лицензий
+    - Определяет рейтинг поставщика по формуле:
+      `25% reputation + 20% certificates + 20% production capacity + 15% price/quality + 10% legal transparency + 10% export activity`
+    - Результат сортируется по убыванию рейтинга.
+    - Возвращает **ровно 5 карточек** поставщиков с эмодзи 🥇 → 5️⃣
+
+    📦 **Пример карточки:**
+    ```
+    🥇 TOP 1 — Guangzhou LGSF Steel Co., Ltd.
+    🌍 Регион: Guangdong, China
+    🏷️ Продукт: Light Gauge Steel Frames
+    💰 Цена: $800 / ton
+    📦 MOQ: 5 tons
+    🧾 Сертификаты: ISO9001; CE
+    📞 Контакты: WeChat: steelchina | WhatsApp: +8618888888888 | Email: info@lgsteel.cn | Website: https://www.made-in-china.com/showroom/lgsteel
+    🧠 Рейтинг: 92 / 100
+    🔗 Источник: Made-in-China
+    🖼️ [Image](https://example.com/img1.jpg)
+    ```
+
+    ---
+    🔹 **Режим работы:**
+    - принимает запрос `q` (название материала, продукции или категории)
+    - нормализует русский текст в английский (например, “ЛСТК” → “light gauge steel frame”)
+    - выполняет массовый парсинг
+    - очищает дубликаты
+    - формирует финальные карточки HTML
+
+    ---
+    📊 **Основные сценарии использования:**
+    - Подключение к кастомным GPT-агентам OpenAI через Actions API
+    - Встраивание в CRM/ERP-системы (BazelGroup CRM)
+    - Веб-дашборды поиска поставщиков и агрегаторы импорта
+
 servers:
-  - url: https://YOUR-RENDER-APP.onrender.com
+  - url: https://di-agent-sdk.onrender.com
+    description: Главный продакшен-сервер (Render)
+  - url: http://localhost:8080
+    description: Локальный сервер разработки (Node / FastAPI)
+
 paths:
   /search:
     get:
       operationId: getTop5Suppliers
-      summary: Returns 5 supplier cards (HTML) for the given query
+      summary: Возвращает 5 карточек поставщиков в HTML
+      description: |
+        Выполняет сбор данных по 70+ источникам Китая, извлекает контакты, сертификаты, рейтинг и возвращает красиво отформатированные карточки.
+        Ответ полностью готов для рендера в GPT или браузере.
       parameters:
         - in: query
           name: q
           required: true
           schema:
             type: string
-          description: Product/industry keywords (any language; RU auto-normalizes)
+          description: |
+            Поисковый запрос (название продукта или категории).  
+            Можно вводить на русском, китайском или английском.  
+            SDK сам нормализует (например, "пенобетон" → "foam concrete", "ЛСТК" → "light gauge steel frame").
       responses:
         "200":
-          description: OK (HTML cards)
+          description: Успешный ответ (HTML с карточками)
           content:
             text/html:
               schema:
                 type: string
+                example: |
+                  🥇 TOP 1 — Foshan LGSF Tech Co., Ltd.
+                  🌍 Регион: Guangdong, China
+                  🏷️ Продукт: LGSF Cold-Formed Steel Profile
+                  💰 Цена: $730 / ton
+                  📦 MOQ: 10 tons
+                  🧾 Сертификаты: ISO9001; CE
+                  📞 Контакты: WhatsApp: +8615123456789 | Telegram: @lgsteel | Email: sales@lgsfchina.com
+                  🧠 Рейтинг: 95 / 100
+                  🔗 Источник: Made-in-China
+                  🖼️ [Image](https://img.made-in-china.com/example.jpg)
+                  ────────────────────────────
+                  ... (всего 5 карточек)
         "204":
-          description: No suppliers found
+          description: Нет результатов (поставщики не найдены)
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: "❌ Нет данных. Запрос: 'ЛСТК'"
         "400":
-          description: Missing q
+          description: Ошибка запроса — отсутствует параметр q
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: "Missing q"
         "500":
-          description: Internal error
+          description: Внутренняя ошибка сервера
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: "Internal error"
+  /search_json:
+    get:
+      operationId: getSuppliersJSON
+      summary: Возвращает структурированный JSON-объект с полями поставщиков
+      description: |
+        Возвращает тот же результат, что `/search`, но в JSON-формате (для API-интеграции, CRM, фронтендов и внешних систем).
+        Содержит полные данные — ссылки, сертификаты, рейтинги, контакты, фото и источники.
+      parameters:
+        - in: query
+          name: q
+          required: true
+          schema:
+            type: string
+          description: Ключевые слова для поиска (любая локаль)
+      responses:
+        "200":
+          description: Успешный ответ с JSON-объектом
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  query:
+                    type: string
+                    description: Исходный поисковый запрос
+                  results:
+                    type: array
+                    description: Массив поставщиков (до 5 записей)
+                    items:
+                      type: object
+                      properties:
+                        CompanyName:
+                          type: string
+                          example: Guangzhou LGSF Steel Co., Ltd.
+                        Region:
+                          type: string
+                          example: Guangdong, China
+                        Product:
+                          type: string
+                          example: Light Gauge Steel Frame
+                        Price:
+                          type: string
+                          example: $800 / ton
+                        MOQ:
+                          type: string
+                          example: 5 tons
+                        Certificates:
+                          type: string
+                          example: ISO9001; CE
+                        Contacts:
+                          type: object
+                          properties:
+                            Phone:
+                              type: string
+                              example: "+8618812345678"
+                            Email:
+                              type: string
+                              example: "info@lgsteel.cn"
+                            WhatsApp:
+                              type: string
+                              example: "https://wa.me/8618812345678"
+                            Telegram:
+                              type: string
+                              example: "https://t.me/lgsteel"
+                            WeChat:
+                              type: string
+                              example: "lgsteelchina"
+                        Rating:
+                          type: integer
+                          example: 93
+                        Source:
+                          type: string
+                          example: Made-in-China
+                        Website:
+                          type: string
+                          example: "https://www.made-in-china.com/showroom/lgsteel"
+                        ImageLink:
+                          type: string
+                          example: "https://example.com/img1.jpg"
+        "204":
+          description: Нет результатов
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: "❌ Нет данных. Запрос: 'пенобетон'"
+        "500":
+          description: Внутренняя ошибка сервера
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: "Internal error"
+
+components:
+  schemas:
+    SupplierCard:
+      type: object
+      properties:
+        CompanyName:
+          type: string
+        Region:
+          type: string
+        Product:
+          type: string
+        Price:
+          type: string
+        MOQ:
+          type: string
+        Certificates:
+          type: string
+        Rating:
+          type: integer
+        Contacts:
+          type: object
+          properties:
+            Phone:
+              type: string
+            Email:
+              type: string
+            WhatsApp:
+              type: string
+            Telegram:
+              type: string
+            WeChat:
+              type: string
+        Source:
+          type: string
+        Website:
+          type: string
+        ImageLink:
+          type: string
