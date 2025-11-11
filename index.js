@@ -428,4 +428,18 @@ app.get("/search", async (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`SDK server on :${PORT}`);
-});
+});// =====================================================
+// 🛰️ Keep-alive ping — чтобы Render не засыпал
+// =====================================================
+import https from "https";
+
+const SELF_URL = "https://di-agent-sdk.onrender.com"; // замени, если Render другой
+setInterval(() => {
+  https
+    .get(SELF_URL + "/search?q=pulse", (res) => {
+      console.log(`⏱️ Ping status: ${res.statusCode}`);
+    })
+    .on("error", (err) => {
+      console.error("Ping error:", err.message);
+    });
+}, 5 * 60 * 1000); // каждые 5 минут
