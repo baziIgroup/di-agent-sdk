@@ -1,7 +1,7 @@
 {
-  "name": "china-supplier-sourcing-sdk",
+  "name": "di-agent-sdk",
   "version": "1.0.0",
-  "description": "China Supplier Sourcing SDK (Node) — 70+ sources, returns 5 HTML cards for GPT.",
+  "description": "DI Agent SDK (Node.js) — 70+ sources, data collector & enricher for supplier sourcing.",
   "main": "index.js",
   "type": "module",
   "scripts": {
